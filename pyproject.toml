@@ -1,0 +1,21 @@
+[project]
+name = "coindeck"
+version = "0.1.0"
+description = "A lazygit-style crypto market watcher: watchlist, live candlestick chart and trade tape from Coinbase public data"
+readme = "README.md"
+authors = [
+    { name = "Steven ODell", email = "saoii96@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "textual>=8.2.8",
+    "websockets>=17.1",
+]
+
+[project.scripts]
+coindeck = "coindeck:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

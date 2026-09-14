@@ -1,0 +1,143 @@
+/* gitdeck palette: 77 focus #5fd75f, 240 border #585858, 111 accent #87afff */
+
+Screen {
+    background: ansi_default;
+    color: ansi_default;
+}
+
+#main {
+    height: 1fr;
+}
+
+#left {
+    width: 44;
+    min-width: 36;
+}
+
+.panel {
+    background: ansi_default;
+    border: round #585858;
+    border-title-color: #585858;
+    border-subtitle-color: #585858;
+    border-title-align: left;
+    border-subtitle-align: right;
+    scrollbar-size: 0 0;
+    padding: 0;
+}
+
+.panel:focus {
+    border: round #5fd75f;
+    border-title-color: #5fd75f;
+    border-title-style: bold;
+    border-subtitle-color: #5fd75f;
+}
+
+#watchlist {
+    height: 1fr;
+    min-height: 5;
+}
+
+#market {
+    height: 9;
+}
+
+#trades {
+    height: 1fr;
+    min-height: 4;
+}
+
+#chart {
+    width: 1fr;
+    height: 100%;
+}
+
+#bar {
+    height: 1;
+    background: ansi_default;
+}
+
+/* narrow terminals: a slimmer left column, no trade tape */
+Screen.narrow #left {
+    width: 36;
+    min-width: 30;
+}
+
+Screen.narrow #trades {
+    display: none;
+}
+
+/* very narrow: panels on top, chart underneath */
+Screen.tiny #main {
+    layout: vertical;
+}
+
+Screen.tiny #left {
+    width: 100%;
+    height: 45%;
+}
+
+Screen.tiny #market {
+    display: none;
+}
+
+Screen.tiny #chart {
+    width: 100%;
+    height: 1fr;
+}
+
+/* popups */
+
+ModalScreen {
+    align: center middle;
+    background: transparent;
+}
+
+.popup {
+    width: auto;
+    min-width: 40;
+    max-width: 90%;
+    height: auto;
+    max-height: 90%;
+    background: ansi_default;
+    border: round #5fd75f;
+    border-title-color: #5fd75f;
+    border-title-style: bold;
+    border-subtitle-color: #5fd75f;
+    border-subtitle-align: right;
+    padding: 0 1;
+}
+
+.popup-menu {
+    width: 80;
+    padding: 0;
+}
+
+.popup-add {
+    width: 64;
+    padding: 0;
+}
+
+.popup-body {
+    width: auto;
+    background: ansi_default;
+    margin: 0 0 1 0;
+}
+
+.menu-list {
+    height: auto;
+    background: ansi_default;
+    scrollbar-size: 0 0;
+}
+
+#add-input {
+    height: 1;
+    border: none;
+    padding: 0 1;
+    margin: 0 0 1 0;
+    background: #303030;
+    color: ansi_default;
+}
+
+#add-input:focus {
+    border: none;
+}
