@@ -1,4 +1,4 @@
-"""Watchlist and view settings in ~/.config/coindeck/state.json; the product
+"""Watchlist, holdings and view settings in ~/.config/coindeck/state.json; the product
 list is cached in ~/.cache/coindeck so the add popup opens instantly."""
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ class State:
     zoom: int = 1
     mode: str = "candles"
     volume: bool = True
+    holdings: dict[str, float] = field(default_factory=dict)    # base currency -> amount owned
 
     @classmethod
     def load(cls, demo: bool = False) -> "State":
@@ -55,6 +56,10 @@ class State:
             st.mode = data["mode"]
         if isinstance(data.get("volume"), bool):
             st.volume = data["volume"]
+        held = data.get("holdings")
+        if isinstance(held, dict):
+            st.holdings = {k: float(v) for k, v in held.items()
+                           if isinstance(k, str) and isinstance(v, (int, float)) and v > 0}
         return st
 
     @staticmethod

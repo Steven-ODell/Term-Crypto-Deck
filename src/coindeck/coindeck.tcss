@@ -38,7 +38,7 @@ Screen {
 }
 
 #market {
-    height: 9;
+    height: 10;
 }
 
 #trades {
@@ -129,7 +129,20 @@ ModalScreen {
     scrollbar-size: 0 0;
 }
 
-#add-input {
+.popup-portfolio {
+    width: 84;
+}
+
+.popup-amount {
+    width: 60;
+    padding: 0;
+}
+
+#amount-preview {
+    margin: 0;
+}
+
+#add-input, #amount-input {
     height: 1;
     border: none;
     padding: 0 1;
@@ -138,6 +151,6 @@ ModalScreen {
     color: ansi_default;
 }
 
-#add-input:focus {
+#add-input:focus, #amount-input:focus {
     border: none;
 }

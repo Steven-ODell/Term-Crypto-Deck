@@ -22,15 +22,16 @@ from .chart import Chart
 from .feed import Client, DemoClient, DemoFeed, Feed
 from .market import (
     TF_BY_NAME, TIMEFRAMES, Product, Series, Ticker, Timeframe, Trade,
-    fmt_compact, fmt_pct, fmt_price, fmt_size, price_decimals, sparkline,
+    fmt_amount, fmt_compact, fmt_pct, fmt_price, fmt_size, fmt_usd, price_decimals, sparkline,
 )
-from .screens import AddScreen, MenuScreen, help_rows
+from .screens import AddScreen, AmountScreen, MenuScreen, PortfolioScreen, help_rows
 from .widgets import (
     C_ACCENT, C_AMBER, C_FOCUS, C_GREEN, C_GREY, C_RED, DIM, CommandBar, LinesView, PanelList, Row,
 )
 
 SPIN = "|/-\\"
 PANELS = ("watchlist", "market", "trades", "chart")
+USD_QUOTES = ("USD", "USDC", "USDT")
 FLASH_SECONDS = 0.8
 SPARK_TF = TF_BY_NAME["1h"]
 
@@ -94,6 +95,8 @@ class CoinDeck(App):
         Binding("y", "copy", show=False),
         Binding("o", "open", show=False),
         Binding("r", "reload", show=False),
+        Binding("p", "portfolio", show=False),
+        Binding("e", "edit_holding", show=False),
         Binding("question_mark", "help", show=False),
     ]
 
@@ -181,6 +184,7 @@ class CoinDeck(App):
                 self.products = {p.id: p for p in prods}
                 if not self.demo:
                     cfgmod.save_products(prods)
+                self._subscribe()       # held tokens off the watchlist need the product list
             except Exception as exc:
                 self.flash(f"could not load the market list: {self._err(exc)}", error=True)
         await self._refresh_stats()
@@ -361,6 +365,8 @@ class CoinDeck(App):
         self.mark("watchlist")
         if pid == self.selected:
             self.mark("market", "chart")
+        elif pid.partition("-")[0] in self.state.holdings:
+            self.mark("watchlist")      # the total in its border
 
     def _on_trade(self, pid: str, tr: Trade) -> None:
         if pid != self.selected or not tr.price:
@@ -377,7 +383,9 @@ class CoinDeck(App):
         self.update_bar()
 
     def _subscribe(self) -> None:
-        self.feed.want(set(self.state.watchlist), self.selected)
+        # held tokens tick live even when they are not on the watchlist
+        held = {f"{b}-USD" for b in self.state.holdings if f"{b}-USD" in self.products}
+        self.feed.want(set(self.state.watchlist) | held, self.selected)
 
     # ---------------------------------------------------------------- tick --
 
@@ -452,7 +460,7 @@ class CoinDeck(App):
         if self.screen.has_class("narrow"):
             self.p_watch.styles.height = "1fr"
         else:
-            room = self.size.height - 1 - 9 - 10
+            room = self.size.height - 1 - 10 - 10
             self.p_watch.styles.height = max(5, min(len(rows) + 2, room))
         self.refresh_titles()
 
@@ -535,6 +543,16 @@ class CoinDeck(App):
                 kv("bid ask", sp)
             else:
                 kv("30d vol", f"{fmt_compact(t.volume_30d)} {base}")
+        amount = self.state.holdings.get(base, 0.0)
+        usd = self.usd_ticker(base)
+        if amount:
+            h = Text(f"{fmt_amount(amount)} {base}")
+            if usd and usd.price:
+                h.append("  ")
+                h.append(fmt_usd(amount * usd.price), style=Style(color=C_ACCENT, bold=True))
+            kv("holding", h)
+        else:
+            kv("holding", Text("none  (e sets it)", style=DIM))
         if prod is None and self.products:
             lines.append(Text(" not listed on Coinbase any more?", style=Style(color=C_AMBER)))
         self.p_market.set_lines(lines)
@@ -572,8 +590,13 @@ class CoinDeck(App):
     def refresh_titles(self) -> None:
         n = len(self.state.watchlist)
         self.p_watch.border_title = _title(1, "Watchlist")
-        self.p_watch.border_subtitle = Text(
-            f"{self.p_watch.selectable_index} of {n}" if n else "")
+        sub = Text()
+        total, _ = self.portfolio_total()
+        if total:
+            sub.append(fmt_usd(total), style=Style(color=C_ACCENT, bold=True))
+            sub.append(" held (p) ─ ")
+        sub.append(f"{self.p_watch.selectable_index} of {n}" if n else "")
+        self.p_watch.border_subtitle = sub
         self.p_market.border_title = _title(2, "Market", self.selected or "")
         self.p_market.border_subtitle = Text(
             f"24h stats {_ago(self.stats_at)}" if self.stats_at and not self.stats_error
@@ -613,7 +636,7 @@ class CoinDeck(App):
                      ("full", "f"), ("keys", "?"), ("quit", "q")]
         elif fid == "watchlist":
             binds = [("timeframe", "[ ]"), ("add", "a"), ("remove", "d"), ("reorder", "J K"),
-                     ("cursor", "h l"), ("line", "c"), ("chart", "enter"), ("keys", "?"), ("quit", "q")]
+                     ("holding", "e"), ("portfolio", "p"), ("cursor", "h l"), ("line", "c"), ("chart", "enter"), ("keys", "?"), ("quit", "q")]
         else:
             binds = [("scroll", "j k"), ("timeframe", "[ ]"), ("cursor", "h l"), ("add", "a"),
                      ("keys", "?"), ("quit", "q")]
@@ -830,6 +853,97 @@ class CoinDeck(App):
         self.load_series(self.selected, self.tf, force=True)
         self.run_worker(self._refresh_stats(), group="stats")
         self.flash(f"reloading {self.selected} {self.tf.name}")
+
+    # ------------------------------------------------------------ holdings --
+
+    def usd_ticker(self, base: str) -> Ticker | None:
+        for q in USD_QUOTES:
+            t = self.tickers.get(f"{base}-{q}")
+            if t and t.price:
+                return t
+        return None
+
+    def portfolio_total(self) -> tuple[float, float]:
+        """Dollar value of everything held, and how much of it the last 24h added."""
+        total = change = 0.0
+        for base, amount in self.state.holdings.items():
+            t = self.usd_ticker(base)
+            if t:
+                total += amount * t.price
+                change += amount * t.change
+        return total, change
+
+    def portfolio_rows(self) -> tuple[list[Row], Text]:
+        total, change = self.portfolio_total()
+        held = []
+        for base, amount in self.state.holdings.items():
+            t = self.usd_ticker(base)
+            held.append((amount * t.price if t else -1.0, base, amount, t))
+        held.sort(key=lambda h: (-h[0], h[1]))
+
+        def cols(name, amount, price, value, move, share) -> Text:
+            line = Text(" ")
+            for text, width, style in ((name, 8, Style(bold=True)), (amount, 18, None),
+                                       (price, 13, DIM), (value, 14, Style(bold=True)),
+                                       (move, 13, None), (share, 8, DIM)):
+                cell = text if isinstance(text, Text) else Text(text, style=style)
+                if width == 8:
+                    cell.pad_right(width - cell.cell_len)
+                else:
+                    cell.pad_left(width - cell.cell_len)
+                line.append_text(cell)
+            return line
+
+        def move_text(v: float) -> Text:
+            return Text(("+" if v >= 0 else "-") + fmt_usd(abs(v)),
+                        style=Style(color=C_GREEN if v >= 0 else C_RED))
+
+        rows = [Row(cols(Text("token", style=DIM), Text("amount", style=DIM), "price",
+                         Text("value", style=DIM), Text("24h", style=DIM), "share"))]
+        for value, base, amount, t in held:
+            if t:
+                dec = min(8, price_decimals(t.price))
+                rows.append(Row(cols(base, fmt_amount(amount), "$" + fmt_price(t.price, dec),
+                                     fmt_usd(value), move_text(amount * t.change) if t.open_24h else "",
+                                     f"{value / total * 100:.1f}%" if total else ""), key=base))
+            else:
+                rows.append(Row(cols(base, fmt_amount(amount), "…", "…", "", ""), key=base))
+        if held:
+            rows.append(Row(Text(" " + "─" * 74, style=DIM)))
+            opened = total - change
+            pct = Text(f" {fmt_pct(change / opened * 100)}" if opened else "",
+                       style=Style(color=C_GREEN if change >= 0 else C_RED))
+            rows.append(Row(cols("total", "", "", fmt_usd(total), move_text(change), pct)))
+        title = Text("Portfolio")
+        if total:
+            title.append(" ─ " + fmt_usd(total))
+        return rows, title
+
+    def edit_holding(self, base: str, then=None) -> None:
+        def done(amount: float | None) -> None:
+            if amount is None:
+                return
+            if amount > 0:
+                self.state.holdings[base] = amount
+                self.flash(f"holding {fmt_amount(amount)} {base}")
+            else:
+                self.state.holdings.pop(base, None)
+                self.flash(f"stopped tracking {base}")
+            self.state.save(self.demo)
+            self._subscribe()
+            self.mark("watchlist", "market")
+            if then:
+                then()
+
+        self.push_screen(AmountScreen(base, self.state.holdings.get(base, 0.0),
+                                      self.usd_ticker(base)), done)
+
+    def action_edit_holding(self) -> None:
+        if self.selected:
+            self.edit_holding(self.selected.partition("-")[0])
+
+    def action_portfolio(self) -> None:
+        self.push_screen(PortfolioScreen(self.portfolio_rows))
 
     def action_help(self) -> None:
         self.push_screen(MenuScreen("Keybindings", help_rows(), footer=[("close", "esc")]))

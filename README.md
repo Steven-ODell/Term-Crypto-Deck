@@ -63,6 +63,8 @@ chart       [ ]  t           previous / next timeframe: 1m 5m 15m 1h 4h 6h 1d 1w
             g G              oldest loaded candle / back to live
             esc              drop the cursor and follow live again
             mouse            wheel pans, click puts the cursor on a candle
+holdings    e                set how much of the selected token you hold (0 stops tracking it)
+            p                portfolio: every token held, its dollar value, 24h move and share
 other       y                copy the price under the cursor, or the last price (wl-copy)
             o                open the pair on coinbase.com
             r                reload candles and 24h stats
@@ -88,6 +90,12 @@ oldest loaded candle fetches another page of history until Coinbase runs out.
 **Market.** Last price, 24h change, high, low, where the price sits in today's
 range, 24h volume (with the dollar value for USD pairs), best bid and ask with
 the spread.
+
+**Holdings.** Amounts you own, per token (TAO, not TAO-USD), priced off the
+token's USD pair. The Market panel's `holding` line shows the selected token's
+amount and dollar value, the Watchlist border shows the total, and `p` opens the
+full table with a total row. Held tokens tick live even when they are not on
+the watchlist.
 
 **Trades.** The live tape for the selected pair, newest first. Green is a buyer
 taking the ask, red a seller hitting the bid. Trades over $25k are bold with
@@ -118,7 +126,7 @@ data; they come back as flat grey candles so the time axis stays even.
 
 | Path | What |
 |---|---|
-| `~/.config/coindeck/state.json` | watchlist, selected pair, timeframe, zoom, line or candles, volume on or off |
+| `~/.config/coindeck/state.json` | watchlist, holdings, selected pair, timeframe, zoom, line or candles, volume on or off |
 | `~/.config/coindeck/state-demo.json` | the same for `--demo` |
 | `~/.cache/coindeck/products.json` | Coinbase market list, safe to delete |
 

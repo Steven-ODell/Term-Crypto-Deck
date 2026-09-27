@@ -10,7 +10,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
-from .market import Product, Ticker, fmt_compact, fmt_pct, fmt_price
+from .market import Product, Ticker, fmt_amount, fmt_compact, fmt_pct, fmt_price, fmt_usd
 from .widgets import C_ACCENT, C_GREEN, C_KEY, C_RED, DIM, PanelList, Row
 
 
@@ -128,6 +128,9 @@ HELP = [
     ("v", "volume strip on / off"),
     ("esc", "drop the cursor and follow live again"),
     ("g G", "in the chart: oldest loaded, back to live"),
+    ("", "Holdings"),
+    ("p", "portfolio: every token you hold, its value and the total"),
+    ("e", "set how much of the selected token you hold"),
     ("", "Other"),
     ("y", "copy the price under the cursor, or the last price"),
     ("o", "open the pair on coinbase.com"),
@@ -244,4 +247,109 @@ class AddScreen(ModalScreen[str | None]):
         self.query_one(PanelList).move(n)
 
     def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+def parse_amount(text: str) -> float | None:
+    """What the wallet shows, commas and all. None when it is not a number."""
+    try:
+        v = float(text.replace(",", "").replace("_", "").strip() or "0")
+    except ValueError:
+        return None
+    return v if v >= 0 and v == v and v != float("inf") else None
+
+
+class AmountScreen(ModalScreen[float | None]):
+    """Type how much of one token you hold. 0 or empty stops tracking it."""
+
+    BINDINGS = [Binding("escape", "cancel", show=False)]
+
+    def __init__(self, base: str, amount: float, price: Ticker | None) -> None:
+        super().__init__()
+        self.base = base
+        self.amount = amount
+        self.price = price
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="popup popup-amount") as box:
+            box.border_title = f"How much {self.base} do you hold"
+            box.border_subtitle = _hint([("save", "enter"), ("cancel", "esc")])
+            yield Input(value=fmt_amount(self.amount).replace(",", "") if self.amount else "",
+                        placeholder=f"amount of {self.base}, 0 to stop tracking it", id="amount-input")
+            yield Static(id="amount-preview", classes="popup-body")
+
+    def on_mount(self) -> None:
+        self.preview(self.query_one(Input).value)
+        self.query_one(Input).focus()
+
+    def preview(self, text: str) -> None:
+        v = parse_amount(text)
+        out = Text(" ")
+        if v is None:
+            out.append("not a number", style=Style(color=C_RED))
+        elif self.price and self.price.price:
+            out.append(f"{fmt_amount(v)} {self.base} = ", style=DIM)
+            out.append(fmt_usd(v * self.price.price), style=Style(bold=True))
+            out.append(f"  at {"$" + fmt_price(self.price.price)}",
+                       style=DIM)
+        else:
+            out.append(f"no USD price for {self.base} yet", style=DIM)
+        self.query_one("#amount-preview", Static).update(out)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        self.preview(event.value)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        v = parse_amount(event.value)
+        if v is not None:
+            self.dismiss(v)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class PortfolioScreen(ModalScreen[None]):
+    """Every token held: amount, price, value, 24h move and share of the
+    total. Rebuilt every second so a moving market shows here too."""
+
+    BINDINGS = [
+        Binding("escape,q,p", "close", show=False),
+        Binding("enter,e", "edit", show=False),
+        Binding("j,down", "move(1)", show=False),
+        Binding("k,up", "move(-1)", show=False),
+    ]
+
+    def __init__(self, build) -> None:
+        super().__init__()
+        self.build = build      # () -> (rows, title)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="popup popup-menu popup-portfolio") as box:
+            box.border_subtitle = _hint([("edit", "enter"), ("close", "esc")])
+            yield PanelList(classes="menu-list", empty="nothing held: select a pair and press e")
+
+    def on_mount(self) -> None:
+        self.rebuild()
+        self.query_one(PanelList).focus()
+        self.set_interval(1.0, self.rebuild)
+
+    def rebuild(self) -> None:
+        rows, title = self.build()
+        lst = self.query_one(PanelList)
+        lst.set_rows(rows)
+        lst.styles.height = max(1, min(len(rows), self.app.size.height - 6))
+        self.query_one(".popup-portfolio").border_title = title
+
+    def action_move(self, n: int) -> None:
+        self.query_one(PanelList).move(n)
+
+    def action_edit(self) -> None:
+        key = self.query_one(PanelList).selected_key
+        if key:
+            self.app.edit_holding(key, then=self.rebuild)
+
+    def on_panel_list_activated(self, event: PanelList.Activated) -> None:
+        self.action_edit()
+
+    def action_close(self) -> None:
         self.dismiss(None)

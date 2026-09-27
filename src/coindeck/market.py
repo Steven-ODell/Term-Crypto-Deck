@@ -228,6 +228,15 @@ def fmt_size(s: float) -> str:
     return f"{s:.8f}".rstrip("0").rstrip(".") or "0"
 
 
+def fmt_amount(a: float) -> str:
+    """A token amount as the wallet shows it: every decimal, no trailing zeros."""
+    return f"{a:,.8f}".rstrip("0").rstrip(".") or "0"
+
+
+def fmt_usd(v: float) -> str:
+    return f"${v:,.2f}" if v >= 0 else f"-${-v:,.2f}"
+
+
 SPARK = "▁▂▃▄▅▆▇█"
 
 
