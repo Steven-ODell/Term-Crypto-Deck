@@ -131,6 +131,8 @@ HELP = [
     ("", "Holdings"),
     ("p", "portfolio: every token you hold, its value and the total"),
     ("e", "set how much of the selected token you hold"),
+    ("", "Cipher"),
+    ("b", "Cipher B paper trader page; b or esc comes back, it keeps trading"),
     ("", "Other"),
     ("y", "copy the price under the cursor, or the last price"),
     ("o", "open the pair on coinbase.com"),

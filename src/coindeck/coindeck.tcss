@@ -154,3 +154,47 @@ ModalScreen {
 #add-input:focus, #amount-input:focus {
     border: none;
 }
+
+/* the Cipher page (cipher/screen.py) */
+
+#c-main {
+    height: 1fr;
+}
+
+#c-top {
+    height: 17;
+}
+
+#c-bottom {
+    height: 1fr;
+}
+
+.c-panel {
+    padding: 0 1;
+}
+
+#c-scanner {
+    height: 100%;
+    width: 1fr;
+    min-width: 60;
+}
+
+#c-position {
+    height: 100%;
+    width: 44;
+}
+
+#c-log {
+    width: 1fr;
+    background: ansi_default;
+}
+
+#c-trades {
+    width: 44;
+    overflow-y: auto;
+}
+
+#c-bar {
+    height: 1;
+    background: ansi_default;
+}

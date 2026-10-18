@@ -65,6 +65,7 @@ chart       [ ]  t           previous / next timeframe: 1m 5m 15m 1h 4h 6h 1d 1w
             mouse            wheel pans, click puts the cursor on a candle
 holdings    e                set how much of the selected token you hold (0 stops tracking it)
             p                portfolio: every token held, its dollar value, 24h move and share
+cipher      b                the Cipher page, a paper trader (see below)
 other       y                copy the price under the cursor, or the last price (wl-copy)
             o                open the pair on coinbase.com
             r                reload candles and 24h stats
@@ -101,6 +102,120 @@ the watchlist.
 taking the ask, red a seller hitting the bid. Trades over $25k are bold with
 their dollar size in amber. The border shows trades per minute.
 
+## Cipher page
+
+`b` opens a second page: a paper trader that watches six Coinbase coins (QNT,
+NEAR, RENDER, AERO, TAO, VIRTUAL) with the Cipher B signals from VuManChu's
+open-source Market Cipher B remake. Every candle close it rescans all six,
+picks the strongest signal, and trades it with pretend money at real Coinbase
+bid/ask prices and fees. It never places a real order. This was its own app,
+cipherdeck, until 2026-10-18.
+
+```
+╭─[1] Scanner ───────────────────────────────────────╮╭─[2] Position ─────────────╮
+│ coin         price     wt1     wt2    flow  cross  ││ LONG RENDER  spot         │
+│ QNT         238.25   -30.7   -38.0    -0.3  up 10  ││ size    480.2 RENDER      │
+│ NEAR ⇅      5.8422   +48.9   +53.1    +6.1  dn 1   ││ entry   2.0029   17:33    │
+╰──────────────────────────────── 15m · closed 17:30 ╯│ equity  $300.00  +0.00%   │
+╭─[3] Log ───────────────────────────────────────────╮╭─[4] Trades ───────────────╮
+│ 17:33:37 OPEN LONG 480.2 RENDER @ 2.0029 on spot   ││ 17:33 NEAR  long  -$26.66 │
+```
+
+The bot starts the first time you open the page and keeps trading after `b`
+or `esc` takes you back to the charts; the bottom right of the chart page then
+shows `cipher long RENDER +$3.20` or `cipher flat`. If the saved account holds
+a position, the bot starts with coindeck so the stop is watched even if you
+never open the page.
+
+```sh
+cipherdeck                      # coindeck opened on the Cipher page: 15m candles, $300, 1.2% spot fee
+cipherdeck --tf 1h              # slower: about 2 trades a day instead of 7
+cipherdeck --balance 500 --reset
+cipherdeck --spot-fee 0.006     # if your Coinbase tier is 0.6% taker
+cipherdeck --demo               # made-up market, a scan every second, no network
+coindeck --cipher               # the same as plain cipherdeck
+```
+
+Plain `coindeck` and `b` use the defaults (15m, $300, 1.2%).
+
+```
+b esc    back to the charts (the bot keeps running)
+space    pause new entries (stops and exits keep running)
+x        close the open position now at market
+s        rescan now (only a candle that closed in the last 2 minutes can trade)
+R R      wipe the paper account back to the starting balance
+1-4      focus a panel; the log scrolls with the mouse wheel when focused
+q        quit (the account is saved after every fill)
+```
+
+The paper account lives in `~/.local/share/cipherdeck/paper.json` (the old
+app's folder, kept so the account carried over) and every event is appended to
+`events.log` next to it. `--demo` uses its own files and starts fresh every time.
+
+### The rules
+
+`src/coindeck/cipher/strategy.py` is the whole strategy, and the backtest calls
+the same functions.
+
+- **Long**: the waves cross up below zero while money flow is green.
+- **Short**: the waves cross down above zero while money flow is red. NEAR only.
+- **Exit**: the opposite wave cross, or the stop.
+- **Stops**: 3% under entry for spot longs, 1.5% over entry for the NEAR short.
+- **Pick**: if several coins signal on the same candle, the highest score wins.
+  The score is how far from zero the waves crossed plus the money flow strength.
+- One position at a time. Spot longs use all the cash.
+
+The scanner also shows the classic Cipher B green and red dots, but nothing
+trades on them.
+
+### What Coinbase allows (checked 2026-10-11)
+
+- All six coins trade on Coinbase spot, so any of them can be bought.
+- Of the six, only NEAR has a US perp, `NER-20DEC30-CDE` ("NEAR PERP"), so
+  NEAR is the only coin that can be shorted. Scanner rows marked `⇅` can short,
+  and others show `SHORT (no perp)` greyed out.
+- One NEAR PERP contract is 500 NEAR, about $2,950 at $5.90. At the advertised
+  10x max leverage, that's about $296 of margin. A $300 account can open
+  exactly one contract, and only while it has not lost money. Once it has,
+  short signals are skipped and the log says why.
+- One contract on $300 is about 10x leverage: a 1% move in NEAR is about $30.
+  The bot never opens more than one contract (`max_contracts` in `paper.py`).
+- A real short needs a Coinbase Financial Markets derivatives account, which
+  is a separate sign-up from spot.
+
+### Estimates, not read from Coinbase
+
+These are in `Config` in `paper.py`:
+
+- Spot taker fee 1.2%, the lowest volume tier. Some sources say 0.6%. Your
+  real tier is on your Coinbase fee page.
+- Perp taker fee 0.05%. Coinbase advertises "from 0.02%".
+- Liquidation when the short's margin falls under 5% of notional.
+- Funding payments on the perp are not modelled.
+
+### Backtest
+
+```sh
+uv run python scripts/backtest.py                       # 30 days of 15m
+uv run python scripts/backtest.py --tf 1h --days 90 --spot-fee 0.006
+```
+
+Results on 2026-10-11, $300 start:
+
+| candles | fee | trades | end |
+|---|---|---|---|
+| 15m, 30 days | 1.2% | 215 | $2 |
+| 15m, 30 days | 0.6% | 219 | $23 |
+| 15m, 30 days | 0.05% (fees nearly gone) | 222 | $138 |
+| 1h, 90 days | 1.2% | 143 | $10 |
+| 6h, 365 days | 1.2% | 69 | $44 |
+
+Holding any of the six over the same 30 days made between +18% and +275%.
+These rules lose money even with fees taken out, and fees make it much worse.
+At 7 trades a day, the 15m default pays about 17% of the account in fees each
+day. Treat the paper run as a way to watch the signals work, not as proof
+they make money.
+
 ## Where the data comes from
 
 All from the [Coinbase Exchange public API](https://docs.cdp.coinbase.com/exchange/),
@@ -129,6 +244,8 @@ data; they come back as flat grey candles so the time axis stays even.
 | `~/.config/coindeck/state.json` | watchlist, holdings, selected pair, timeframe, zoom, line or candles, volume on or off |
 | `~/.config/coindeck/state-demo.json` | the same for `--demo` |
 | `~/.cache/coindeck/products.json` | Coinbase market list, safe to delete |
+| `~/.local/share/cipherdeck/paper.json` | the Cipher page's paper account |
+| `~/.local/share/cipherdeck/events.log` | everything the Cipher page has logged |
 
 ## Code
 
@@ -141,13 +258,27 @@ data; they come back as flat grey candles so the time axis stays even.
 | `src/coindeck/widgets.py` | list, text panel and command bar, in launchdeck's palette |
 | `src/coindeck/screens.py` | add-pair search, key list, confirm popup |
 | `src/coindeck/config.py` | state and cache files |
+| `src/coindeck/cipher/waves.py` | Cipher B math ported from VuManChu's Pine v4 (default inputs) |
+| `src/coindeck/cipher/strategy.py` | long/short/exit/pick rules, shared with `scripts/backtest.py` |
+| `src/coindeck/cipher/paper.py` | the paper account: fills at bid/ask, fees, NEAR perp contracts and margin |
+| `src/coindeck/cipher/coinbase.py` | the page's own market client (spot quotes, NEAR perp book) and its demo market |
+| `src/coindeck/cipher/bot.py` | the loop: scan on candle close + 8 s, price poll every 5 s, the log |
+| `src/coindeck/cipher/screen.py` | the Cipher page |
 
 ## Tests
 
 ```sh
 uv run python tests/snap.py demo    # offline: drives every key, asserts, saves screenshots
 uv run python tests/snap.py live    # the same against real Coinbase data
+uv run python tests/test_paper.py          # paper account arithmetic against hand-worked numbers
+uv run python tests/cipher_snap.py demo    # Cipher page: long, short, cross exit, stop, manual close, pause, reset, b and back
+uv run python tests/cipher_snap.py live    # Cipher page against real Coinbase prices, one scan
 ```
 
 Screenshots land in `.scratch/shots/` as SVG. State goes to `.scratch/` too,
 so your own watchlist is never touched.
+
+## Credits
+
+The Cipher B math is VuManChu's Cipher B + Divergences (MPL-2.0), which built
+on LazyBear's WaveTrend and others. See `src/coindeck/cipher/waves.py`.

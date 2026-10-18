@@ -19,6 +19,8 @@ from textual.screen import ModalScreen
 
 from . import config as cfgmod
 from .chart import Chart
+from .cipher.bot import Bot
+from .cipher.screen import CipherScreen
 from .feed import Client, DemoClient, DemoFeed, Feed
 from .market import (
     TF_BY_NAME, TIMEFRAMES, Product, Series, Ticker, Timeframe, Trade,
@@ -97,12 +99,15 @@ class CoinDeck(App):
         Binding("r", "reload", show=False),
         Binding("p", "portfolio", show=False),
         Binding("e", "edit_holding", show=False),
+        Binding("b", "cipher", show=False),
         Binding("question_mark", "help", show=False),
     ]
 
-    def __init__(self, demo: bool = False) -> None:
+    def __init__(self, demo: bool = False, bot: Bot | None = None, cipher: bool = False) -> None:
         super().__init__(ansi_color=True)
         self.demo = demo
+        self.bot = bot or Bot(demo=demo)
+        self.open_cipher = cipher       # start on the Cipher page (the cipherdeck command)
         self.state = cfgmod.State.load(demo)
         self.client = DemoClient() if demo else Client()
         feed_cls = DemoFeed if demo else Feed
@@ -165,6 +170,10 @@ class CoinDeck(App):
         self.set_interval(20, self._refresh_active)
         self.set_interval(600, lambda: self.run_worker(self._refresh_sparks(), group="sparks",
                                                        exclusive=True))
+        if self.open_cipher:
+            self.call_after_refresh(self.action_cipher)
+        elif self.bot.has_open_position():
+            self.bot.start(self)
 
     def on_resize(self, event) -> None:
         self._layout_for(event.size.width)
@@ -417,6 +426,8 @@ class CoinDeck(App):
                 self.p_chart.message = self._chart_message(s)
             self.p_chart.changed()      # keeps a panned-back view still when a live candle opens
             self.refresh_chart_title()
+        if self.bot.started and self._ticks % 5 == 0:
+            self.update_bar()           # the cipher P&L at the bottom right
 
     # ----------------------------------------------------------- watchlist --
 
@@ -636,11 +647,15 @@ class CoinDeck(App):
                      ("full", "f"), ("keys", "?"), ("quit", "q")]
         elif fid == "watchlist":
             binds = [("timeframe", "[ ]"), ("add", "a"), ("remove", "d"), ("reorder", "J K"),
-                     ("holding", "e"), ("portfolio", "p"), ("cursor", "h l"), ("line", "c"), ("chart", "enter"), ("keys", "?"), ("quit", "q")]
+                     ("holding", "e"), ("portfolio", "p"), ("cipher", "b"), ("cursor", "h l"), ("line", "c"),
+                     ("chart", "enter"), ("keys", "?"), ("quit", "q")]
         else:
             binds = [("scroll", "j k"), ("timeframe", "[ ]"), ("cursor", "h l"), ("add", "a"),
                      ("keys", "?"), ("quit", "q")]
         right = Text()
+        if self.bot.started:
+            right.append_text(self.bot.status())
+            right.append("  ")
         if self.demo:
             right.append("demo market  ", style=Style(color=C_AMBER))
         dot, colour = {"live": ("● live", C_GREEN), "connecting": ("◌ connecting", C_AMBER),
@@ -666,7 +681,7 @@ class CoinDeck(App):
     # ------------------------------------------------------------- actions --
 
     def check_action(self, action: str, parameters) -> bool | None:
-        if isinstance(self.screen, ModalScreen) and action != "quit_app":
+        if isinstance(self.screen, (ModalScreen, CipherScreen)) and action != "quit_app":
             return False
         return True
 
@@ -945,6 +960,12 @@ class CoinDeck(App):
     def action_portfolio(self) -> None:
         self.push_screen(PortfolioScreen(self.portfolio_rows))
 
+    def action_cipher(self) -> None:
+        self.bot.start(self)
+        if not self.is_screen_installed("cipher"):
+            self.install_screen(CipherScreen(self.bot), "cipher")
+        self.push_screen("cipher")
+
     def action_help(self) -> None:
         self.push_screen(MenuScreen("Keybindings", help_rows(), footer=[("close", "esc")]))
 
@@ -966,7 +987,8 @@ class CoinDeck(App):
 
     async def on_unmount(self) -> None:
         self.state.save(self.demo)
-        try:
-            await self.client.close()
-        except Exception:
-            pass
+        for c in (self.client, self.bot):
+            try:
+                await c.close()
+            except Exception:
+                pass
